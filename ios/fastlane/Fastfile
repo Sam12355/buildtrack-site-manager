@@ -1,0 +1,184 @@
+# Fastlane lanes for the iOS check-in app.
+#
+# NEVER RUN. There is no macOS machine here and no store credentials, so none of these
+# lanes has executed even as a dry run. They are complete and reviewable; that is a
+# different claim from working, and the README keeps the two apart.
+#
+# Every secret is read from the environment, which CI populates from named GitHub secrets.
+# Nothing in this file, and nothing anywhere in this repository, is a credential.
+
+default_platform(:ios)
+
+APP_IDENTIFIER = "com.guardianlink.checkin".freeze
+SCHEME = "CheckIn".freeze
+
+platform :ios do
+  before_all do
+    # Fail fast rather than twenty minutes into a build. Missing credentials discovered at
+    # the upload step have already cost the build.
+    ensure_env_vars(
+      env_vars: %w[
+        APPLE_APP_STORE_CONNECT_KEY_ID
+        APPLE_APP_STORE_CONNECT_ISSUER_ID
+        APPLE_APP_STORE_CONNECT_PRIVATE_KEY
+      ]
+    ) if ENV["CI"]
+
+    setup_ci if ENV["CI"]
+  end
+
+  desc "Run the quality gates. Nothing is signed until these pass."
+  lane :verify do
+    # Order matters and it is not alphabetical. Lint is seconds, tests are minutes, so
+    # cheap failures happen first.
+    swiftlint(strict: true, raise_if_swiftlint_error: true) if File.exist?(".swiftlint.yml")
+
+    scan(
+      scheme: SCHEME,
+      device: "iPhone 15",
+      clean: true,
+      code_coverage: true,
+      # A simulator build needs no certificate, and this repository has none.
+      xcargs: "CODE_SIGNING_ALLOWED=NO"
+    )
+  end
+
+  desc "Derive the version and build number from git. Never typed by hand."
+  lane :derive_version do
+    # The derivation itself lives in tools/ and is tested. Fastlane only reads the result,
+    # so there is one implementation of the rules rather than two that can disagree.
+    result = sh("cd ../../tools && node dist/cli.js derive", log: false)
+    version, build = result.strip.split(",")
+
+    UI.user_error!("Version derivation produced nothing") if version.to_s.empty?
+
+    increment_version_number(version_number: version)
+    increment_build_number(build_number: build)
+
+    UI.success("Version #{version}, build #{build}")
+    { version: version, build: build }
+  end
+
+  desc "Build a signed release and upload to TestFlight."
+  lane :beta do
+    verify
+
+    derived = derive_version
+
+    api_key = app_store_connect_api_key(
+      key_id: ENV.fetch("APPLE_APP_STORE_CONNECT_KEY_ID"),
+      issuer_id: ENV.fetch("APPLE_APP_STORE_CONNECT_ISSUER_ID"),
+      # Base64 in the secret, because a .p8 pasted raw into a secret field gets mangled
+      # and fails in a way that looks like an authentication error.
+      key_content: Base64.decode64(ENV.fetch("APPLE_APP_STORE_CONNECT_PRIVATE_KEY")),
+      is_key_content_base64: false,
+      in_house: false
+    )
+
+    # A temporary keychain, not the login keychain, so it can be deleted afterwards and a
+    # cancelled job leaves no decoded key on the runner.
+    create_keychain(
+      name: "guardianlink-build",
+      password: ENV.fetch("KEYCHAIN_PASSWORD"),
+      default_keychain: false,
+      unlock: true,
+      timeout: 1800,
+      lock_when_sleeps: false
+    )
+
+    import_certificate(
+      certificate_path: decode_secret_to_temp("APPLE_SIGNING_CERTIFICATE_P12", "p12"),
+      certificate_password: ENV.fetch("APPLE_SIGNING_CERTIFICATE_PASSWORD"),
+      keychain_name: "guardianlink-build",
+      keychain_password: ENV.fetch("KEYCHAIN_PASSWORD")
+    )
+
+    install_provisioning_profile(
+      path: decode_secret_to_temp("APPLE_PROVISIONING_PROFILE", "mobileprovision")
+    )
+
+    gym(
+      scheme: SCHEME,
+      export_method: "app-store",
+      clean: true,
+      output_directory: "build",
+      export_options: {
+        provisioningProfiles: { APP_IDENTIFIER => ENV.fetch("APPLE_PROVISIONING_PROFILE_NAME") }
+      }
+    )
+
+    pilot(
+      api_key: api_key,
+      # The build is available for internal testers immediately; external distribution is
+      # a separate, deliberate step.
+      distribute_external: false,
+      skip_waiting_for_build_processing: true,
+      changelog: release_notes_from_git
+    )
+
+    UI.success("Uploaded #{derived[:version]} (#{derived[:build]}) to TestFlight")
+  end
+
+  desc "Promote an existing TestFlight build to the App Store, with phased release on."
+  lane :release do
+    UI.user_error!("Production releases run from CI behind an approval gate") unless ENV["CI"]
+
+    api_key = app_store_connect_api_key(
+      key_id: ENV.fetch("APPLE_APP_STORE_CONNECT_KEY_ID"),
+      issuer_id: ENV.fetch("APPLE_APP_STORE_CONNECT_ISSUER_ID"),
+      key_content: Base64.decode64(ENV.fetch("APPLE_APP_STORE_CONNECT_PRIVATE_KEY"))
+    )
+
+    deliver(
+      api_key: api_key,
+      submit_for_review: true,
+      automatic_release: false,
+      # Phased release is OFF by default in App Store Connect, and it is the only thing
+      # standing between a bad build and every user at once.
+      phased_release: true,
+      force: true,
+      skip_screenshots: true,
+      skip_metadata: false,
+      precheck_include_in_app_purchases: false
+    )
+  end
+
+  after_all do
+    delete_keychain(name: "guardianlink-build") if File.exist?(
+      File.expand_path("~/Library/Keychains/guardianlink-build-db")
+    )
+  end
+
+  error do |_lane, _exception|
+    # Always, including on failure and cancellation. A decoded signing key left on a runner
+    # is exactly the leak this repository spends a document warning about.
+    delete_keychain(name: "guardianlink-build") rescue nil
+    clean_temp_secrets
+  end
+end
+
+# --- Helpers ---------------------------------------------------------------------------
+
+def decode_secret_to_temp(env_var, extension)
+  require "tempfile"
+
+  file = Tempfile.new(["secret", ".#{extension}"])
+  file.binmode
+  file.write(Base64.decode64(ENV.fetch(env_var)))
+  file.close
+
+  (@temp_secrets ||= []) << file.path
+  file.path
+end
+
+def clean_temp_secrets
+  (@temp_secrets || []).each { |path| File.delete(path) if File.exist?(path) }
+  @temp_secrets = []
+end
+
+def release_notes_from_git
+  # Generated by the tested tooling, not by Fastlane. One implementation of the rules.
+  sh("cd ../../tools && node dist/cli.js notes", log: false).strip
+rescue StandardError
+  "Stability and maintenance improvements."
+end

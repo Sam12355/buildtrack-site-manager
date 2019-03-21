@@ -35,10 +35,11 @@ Being precise about this is most of the point of the repository.
 | Piece | State |
 |-------|-------|
 | Version, build-number and release-note derivation | **44 tests, executed, passing.** Recorded output in [docs/test-results/](docs/test-results/) |
+| The release CLI | **Executed against this repository real git history.** It derived a version, generated notes from the actual commits, and refused a backwards build number with a non-zero exit |
 | Fastlane lanes | Written. Never run, because running them needs a macOS machine and store credentials |
 | GitHub Actions workflows | Written. Never executed, because this repository has not been pushed |
-| iOS app build | Never compiled. No macOS, no Xcode on the build machine |
-| Android app build | Never compiled. SDK present, no Gradle distribution available |
+| iOS check-in app | Sources and tests written. Never compiled: no macOS, no Xcode on the build machine |
+| Android check-in app | Sources and tests written. Never compiled: no Gradle distribution on the build machine |
 | Any store submission | **Never attempted.** No credentials, and it needs approval |
 
 Nothing here claims a build succeeded, a test ran on a device, or a binary reached a store.
@@ -141,8 +142,9 @@ on halting and forward-fixing than on reverting.
 
 ```text
 tools/                Version derivation. TypeScript, tested
-  src/versioning.ts
+  src/versioning.ts     the rules
   src/versioning.spec.ts
+  src/cli.ts            what the pipeline calls. One implementation of the rules
 ios/                  Small UIKit app, Fastlane lanes, App Store Connect config structure
 android/              Small Compose app, Fastlane lanes, Play publishing config structure
 .github/workflows/    Build, test, release-candidate, staged production release

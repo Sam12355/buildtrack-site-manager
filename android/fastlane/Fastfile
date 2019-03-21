@@ -1,0 +1,155 @@
+# Fastlane lanes for the Android check-in app.
+#
+# NEVER RUN. No store credentials and no keystore, so none of these lanes has executed.
+# Complete and reviewable is a different claim from working, and the README keeps them
+# apart.
+#
+# Nothing here is a credential. Everything is read from the environment, which CI
+# populates from named GitHub secrets.
+
+default_platform(:android)
+
+PACKAGE_NAME = "com.guardianlink.checkin".freeze
+
+platform :android do
+  desc "Run the quality gates. Nothing is signed until these pass."
+  lane :verify do
+    gradle(task: "lint", flags: "--no-daemon")
+    gradle(task: "testDebugUnitTest", flags: "--no-daemon")
+  end
+
+  desc "Derive the version and build number from git."
+  lane :derive_version do
+    # The rules live in tools/ and are tested. Fastlane reads the result so there is one
+    # implementation rather than two that can disagree.
+    result = sh("cd ../../tools && node dist/cli.js derive", log: false)
+    version, build = result.strip.split(",")
+
+    UI.user_error!("Version derivation produced nothing") if version.to_s.empty?
+
+    UI.success("Version #{version}, build #{build}")
+    { version: version, build: build }
+  end
+
+  desc "Build a signed bundle and upload to the internal testing track."
+  lane :internal do
+    verify
+
+    derived = derive_version
+
+    # Refuses a version or build number that does not move ahead of what was submitted.
+    # This is the check that catches a hotfix branched from the wrong tag, and it runs
+    # before the build rather than after, so the failure costs seconds instead of twenty
+    # minutes.
+    sh("cd ../../tools && PREVIOUS_BUILD_NUMBER=#{ENV.fetch('PREVIOUS_BUILD_NUMBER', '0')} node dist/cli.js validate")
+
+    keystore = decode_secret_to_temp("ANDROID_KEYSTORE_BASE64", "keystore")
+
+    gradle(
+      task: "bundle",
+      build_type: "Release",
+      flags: "--no-daemon",
+      properties: {
+        "android.injected.version.name" => derived[:version],
+        "android.injected.version.code" => derived[:build],
+        # Injected rather than read from a file in the project. A keystore in a project
+        # directory ends up committed sooner or later, whatever the gitignore says.
+        "android.injected.signing.store.file" => keystore,
+        "android.injected.signing.store.password" => ENV.fetch("ANDROID_KEYSTORE_PASSWORD"),
+        "android.injected.signing.key.alias" => ENV.fetch("ANDROID_KEY_ALIAS"),
+        "android.injected.signing.key.password" => ENV.fetch("ANDROID_KEY_PASSWORD"),
+      }
+    )
+
+    upload_to_play_store(
+      package_name: PACKAGE_NAME,
+      track: "internal",
+      json_key_data: ENV.fetch("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"),
+      release_status: "completed",
+      skip_upload_apk: true,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+
+    UI.success("Uploaded #{derived[:version]} (#{derived[:build]}) to the internal track")
+  end
+
+  desc "Promote the internal build to production, starting at one percent."
+  lane :promote do
+    UI.user_error!("Production releases run from CI behind an approval gate") unless ENV["CI"]
+
+    upload_to_play_store(
+      package_name: PACKAGE_NAME,
+      track: "internal",
+      track_promote_to: "production",
+      json_key_data: ENV.fetch("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"),
+      # Explicit. The default is 100, which means one command sends a build to everybody
+      # and there is nothing left to halt.
+      rollout: "0.01",
+      release_status: "inProgress",
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_metadata: true
+    )
+
+    UI.important("Rollout at 1 percent. Watch the crash rate before expanding.")
+  end
+
+  desc "Expand an in-progress rollout. Percentage is deliberate, never defaulted."
+  lane :expand_rollout do |options|
+    percentage = options[:percentage] or UI.user_error!("Pass percentage:0.1")
+
+    upload_to_play_store(
+      package_name: PACKAGE_NAME,
+      track: "production",
+      json_key_data: ENV.fetch("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"),
+      rollout: percentage.to_s,
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_metadata: true
+    )
+  end
+
+  desc "Halt an in-progress rollout. The first thing to run when something is wrong."
+  lane :halt do
+    # Two minutes, and it stops the problem getting bigger while somebody works on the fix.
+    # Users who already have the version keep it; nobody new receives it.
+    upload_to_play_store(
+      package_name: PACKAGE_NAME,
+      track: "production",
+      json_key_data: ENV.fetch("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"),
+      release_status: "halted",
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_metadata: true
+    )
+
+    UI.important("Rollout halted. Users who already have this version keep it: see docs/ROLLBACK.md.")
+  end
+
+  error do |_lane, _exception|
+    # Always, including on failure and cancellation. A decoded keystore left on a runner is
+    # the leak docs/SECRETS.md spends a page warning about.
+    clean_temp_secrets
+  end
+end
+
+def decode_secret_to_temp(env_var, extension)
+  require "tempfile"
+
+  file = Tempfile.new(["secret", ".#{extension}"])
+  file.binmode
+  # Base64, because a binary keystore pasted raw into a secret field gets mangled and
+  # fails in a way that looks like a wrong password.
+  file.write(Base64.decode64(ENV.fetch(env_var)))
+  file.close
+
+  (@temp_secrets ||= []) << file.path
+  file.path
+end
+
+def clean_temp_secrets
+  (@temp_secrets || []).each { |path| File.delete(path) if File.exist?(path) }
+  @temp_secrets = []
+end
