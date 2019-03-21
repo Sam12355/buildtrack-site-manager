@@ -1,0 +1,237 @@
+name: release
+
+# Tag-driven. Pushing v1.2.3 starts a release; nothing else does.
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Run the gates and derivation without signing or uploading
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  # Never cancel a release in progress. A half-cancelled upload is worse than a slow queue.
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------------
+  # Gate 1. Cheap and fast, so an obvious failure costs seconds rather than a build.
+  # ---------------------------------------------------------------------------------
+  derive:
+    name: derive version and validate
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.derive.outputs.version }}
+      build: ${{ steps.derive.outputs.build }}
+      notes: ${{ steps.derive.outputs.notes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history and tags. The derivation reads both, and a shallow clone silently
+          # produces a wrong build number.
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build the derivation tools
+        working-directory: tools
+        run: pnpm install --no-frozen-lockfile && pnpm build
+
+      - name: Test the derivation tools
+        working-directory: tools
+        # The tools decide the version. If they are broken, everything downstream is
+        # confidently wrong.
+        run: pnpm test
+
+      - name: Derive
+        id: derive
+        run: |
+          OUT=$(node tools/dist/cli.js derive)
+          echo "version=${OUT%%,*}" >> "$GITHUB_OUTPUT"
+          echo "build=${OUT##*,}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'notes<<GUARDIANLINK_EOF'
+            node tools/dist/cli.js notes
+            echo GUARDIANLINK_EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Refuse a release that cannot be submitted
+        env:
+          PREVIOUS_BUILD_NUMBER: ${{ vars.PREVIOUS_BUILD_NUMBER }}
+        # Catches the hotfix-branched-from-the-wrong-tag case here, rather than twenty
+        # minutes later when the store rejects the upload.
+        run: node tools/dist/cli.js validate
+
+      - name: Summary
+        run: |
+          {
+            echo "## Release ${{ steps.derive.outputs.version }} (build ${{ steps.derive.outputs.build }})"
+            echo
+            echo '### Notes'
+            echo '${{ steps.derive.outputs.notes }}'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------------
+  # Gate 2. Tests. Nothing is signed until both platforms pass.
+  # ---------------------------------------------------------------------------------
+  android-gates:
+    name: android lint and tests
+    needs: derive
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - working-directory: android
+        run: gradle --no-daemon lint testDebugUnitTest
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-test-reports
+          path: android/app/build/reports/
+          retention-days: 7
+
+  ios-gates:
+    name: ios tests
+    needs: derive
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate the project
+        run: |
+          brew install xcodegen
+          cd ios && xcodegen generate
+      - name: Test
+        working-directory: ios
+        # A simulator build needs no certificate, and this repository has none.
+        run: |
+          xcodebuild test \
+            -project CheckIn.xcodeproj \
+            -scheme CheckIn \
+            -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+            CODE_SIGNING_ALLOWED=NO
+
+  # ---------------------------------------------------------------------------------
+  # Signing. Only reachable once every gate above is green, so no signed artifact
+  # exists that could be submitted by accident.
+  # ---------------------------------------------------------------------------------
+  android-release:
+    name: android signed build and internal track
+    needs: [derive, android-gates, ios-gates]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: ruby/setup-ruby@v1
+        with: { ruby-version: '3.3', bundler-cache: true, working-directory: android }
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.4 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
+      - working-directory: tools
+        run: pnpm install --no-frozen-lockfile && pnpm build
+
+      - name: Build and upload
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          PREVIOUS_BUILD_NUMBER: ${{ vars.PREVIOUS_BUILD_NUMBER }}
+        # No echo, and no set -x. GitHub masks known secret values, not transformations of
+        # them, so `base64 -d | head` would print a key in plain sight.
+        run: bundle exec fastlane internal
+
+  ios-release:
+    name: ios signed build and TestFlight
+    needs: [derive, android-gates, ios-gates]
+    if: ${{ !inputs.dry_run }}
+    runs-on: macos-14
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: ruby/setup-ruby@v1
+        with: { ruby-version: '3.3', bundler-cache: true, working-directory: ios }
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.4 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
+      - working-directory: tools
+        run: pnpm install --no-frozen-lockfile && pnpm build
+
+      - name: Generate the project
+        run: brew install xcodegen && cd ios && xcodegen generate
+
+      - name: Build and upload
+        working-directory: ios
+        env:
+          APPLE_APP_STORE_CONNECT_KEY_ID: ${{ secrets.APPLE_APP_STORE_CONNECT_KEY_ID }}
+          APPLE_APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APPLE_APP_STORE_CONNECT_ISSUER_ID }}
+          APPLE_APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APPLE_APP_STORE_CONNECT_PRIVATE_KEY }}
+          APPLE_SIGNING_CERTIFICATE_P12: ${{ secrets.APPLE_SIGNING_CERTIFICATE_P12 }}
+          APPLE_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_SIGNING_CERTIFICATE_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
+          APPLE_PROVISIONING_PROFILE_NAME: ${{ secrets.APPLE_PROVISIONING_PROFILE_NAME }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: bundle exec fastlane beta
+
+  # ---------------------------------------------------------------------------------
+  # Production. A separate environment with a required reviewer, which is the one gate
+  # a person can skip and therefore the one the platform enforces rather than a
+  # checklist.
+  # ---------------------------------------------------------------------------------
+  promote:
+    name: promote to production at one percent
+    needs: [android-release, ios-release]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    environment:
+      name: production-release
+      url: https://play.google.com/console
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with: { ruby-version: '3.3', bundler-cache: true, working-directory: android }
+
+      - name: Promote Android to one percent
+        working-directory: android
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+        run: bundle exec fastlane promote
+
+      - name: Reminder
+        run: |
+          {
+            echo '## Rollout started at 1 percent'
+            echo
+            echo 'Watch the crash-free rate for 24 hours before expanding.'
+            echo 'To halt: `bundle exec fastlane halt` from android/, then read docs/ROLLBACK.md.'
+            echo
+            echo 'You cannot roll back a binary a user has already installed.'
+          } >> "$GITHUB_STEP_SUMMARY"
