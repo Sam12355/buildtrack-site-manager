@@ -9,7 +9,7 @@
 
 default_platform(:ios)
 
-APP_IDENTIFIER = "com.guardianlink.checkin".freeze
+APP_IDENTIFIER = "com.buildtrack.checkin".freeze
 SCHEME = "CheckIn".freeze
 
 platform :ios do
@@ -78,7 +78,7 @@ platform :ios do
     # A temporary keychain, not the login keychain, so it can be deleted afterwards and a
     # cancelled job leaves no decoded key on the runner.
     create_keychain(
-      name: "guardianlink-build",
+      name: "buildtrack-build",
       password: ENV.fetch("KEYCHAIN_PASSWORD"),
       default_keychain: false,
       unlock: true,
@@ -89,7 +89,7 @@ platform :ios do
     import_certificate(
       certificate_path: decode_secret_to_temp("APPLE_SIGNING_CERTIFICATE_P12", "p12"),
       certificate_password: ENV.fetch("APPLE_SIGNING_CERTIFICATE_PASSWORD"),
-      keychain_name: "guardianlink-build",
+      keychain_name: "buildtrack-build",
       keychain_password: ENV.fetch("KEYCHAIN_PASSWORD")
     )
 
@@ -144,15 +144,15 @@ platform :ios do
   end
 
   after_all do
-    delete_keychain(name: "guardianlink-build") if File.exist?(
-      File.expand_path("~/Library/Keychains/guardianlink-build-db")
+    delete_keychain(name: "buildtrack-build") if File.exist?(
+      File.expand_path("~/Library/Keychains/buildtrack-build-db")
     )
   end
 
   error do |_lane, _exception|
     # Always, including on failure and cancellation. A decoded signing key left on a runner
     # is exactly the leak this repository spends a document warning about.
-    delete_keychain(name: "guardianlink-build") rescue nil
+    delete_keychain(name: "buildtrack-build") rescue nil
     clean_temp_secrets
   end
 end

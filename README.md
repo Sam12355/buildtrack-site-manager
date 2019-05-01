@@ -1,13 +1,27 @@
-# native-release-lab
+# buildtrack-site-manager
 
 **How iOS and Android binaries get built, versioned, signed, gated, released, rolled back
 and recovered.**
 
-> Part of the [GuardianLink portfolio](../PORTFOLIO.md). A demonstration, not a real
-> safety service.
+> Part of the [portfolio](../PORTFOLIO.md). A demonstration. Nothing here has been submitted
+> to either store.
 
-The app here is deliberately small: a safety check-in screen with a list and a button. It
-exists to give the pipeline something real to build. **The pipeline is the product.**
+> **A reconstruction, not an employer's codebase.** I worked on construction site software
+> in 2015 and 2016, and shipping to phones that live in a hi-vis pocket is a different job
+> from shipping a web app: you cannot take a bad build back off a device, and the people
+> who have it are on a site with no signal. That is the problem this repository is about.
+> Written from scratch for the portfolio; no code, pipeline or credential came from an
+> employer.
+>
+> **The original Android app was Java on Eclipse ADT and then Gradle**, released by hand
+> from a laptop with a keystore in a drawer, which is exactly the practice the runbooks
+> here argue against. The apps in this repository are modern Swift and Kotlin. Rebuilding
+> them in 2015 tooling would have shown nothing about the release process, which is the
+> whole content, so I kept the working implementation and said so.
+
+The app here is deliberately small: a site check-in screen with a list and a button, the
+sort a supervisor uses to record who is on site. It exists to give the pipeline something
+real to build. **The pipeline is the product.**
 
 [![tests](https://img.shields.io/badge/derivation%20tests-44%20passing-brightgreen)](docs/test-results/)
 [![licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
