@@ -1,12 +1,15 @@
 # Recorded output
 
 Host: Windows 11, Node v24.11.1
-Run at: 2026-07-31T08:15:22Z
+Run at: 2026-07-31T09:44:39Z
+
+Re-recorded after the domain rename. The previous transcript had its identifiers rewritten
+along with the code, which would have left text no run ever printed.
 
 ## Derivation tool tests
 
 ```console
- RUN  v2.1.9 C:/Users/slaks/Documents/mygit/native-release-lab/tools
+ RUN  v2.1.9 C:/Users/slaks/Documents/mygit/buildtrack-site-manager/tools
  ✓ src/versioning.spec.ts > parsing a tag > parses v1.2.3
  ✓ src/versioning.spec.ts > parsing a tag > parses 1.2.3
  ✓ src/versioning.spec.ts > parsing a tag > parses v0.0.1
@@ -53,8 +56,8 @@ Run at: 2026-07-31T08:15:22Z
  ✓ src/versioning.spec.ts > a whole release, end to end > derives the next version, build number and notes from a tag and some commits
  Test Files  1 passed (1)
       Tests  44 passed (44)
-   Start at  10:15:26
-   Duration  1.23s (transform 275ms, setup 0ms, collect 308ms, tests 27ms, environment 0ms, prepare 291ms)
+   Start at  11:44:42
+   Duration  711ms (transform 93ms, setup 0ms, collect 99ms, tests 19ms, environment 0ms, prepare 216ms)
 ```
 
 ## The CLI, run against this repository's real git history
@@ -63,18 +66,24 @@ Not a fixture. These are the actual commits in this repository.
 
 ```console
 $ node tools/dist/cli.js derive
-0.1.0,4
+No tags found. Treating this as the first release.
+0.1.0,5
 
 $ node tools/dist/cli.js notes
+No tags found. Treating this as the first release.
 New
+- add the check-in apps, Fastlane lanes and the release pipeline
 - derive version, build number and release notes from git
 
 $ PREVIOUS_BUILD_NUMBER=999 node tools/dist/cli.js validate
 No tags found. Treating this as the first release.
 No tags found. Treating this as the first release.
-Release refused: Build number 4 is not ahead of the submitted 999. Both stores reject this.
+Release refused: Build number 5 is not ahead of the submitted 999. Both stores reject this.
 exit code: 1
 ```
+
+The build number is 5 rather than 4 because it is the commit count, and re-recording this
+added a commit. That is the scheme working as described, not drift.
 
 The last command is the guard doing its job: a build number that does not move ahead
 of what was submitted is refused before the build rather than by the store afterwards.
@@ -88,4 +97,3 @@ of what was submitted is refused before the build rather than by the store after
 | iOS app build | No macOS, no Xcode on this machine |
 | Android app build | No Gradle distribution on this machine |
 | Signing | No assets exist, by design |
-| Store upload | No credentials, and it would need approval |

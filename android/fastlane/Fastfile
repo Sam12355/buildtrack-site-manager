@@ -9,7 +9,7 @@
 
 default_platform(:android)
 
-PACKAGE_NAME = "com.guardianlink.checkin".freeze
+PACKAGE_NAME = "com.buildtrack.checkin".freeze
 
 platform :android do
   desc "Run the quality gates. Nothing is signed until these pass."

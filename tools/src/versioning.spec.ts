@@ -89,10 +89,10 @@ describe('bumping', () => {
 
 describe('parsing commits', () => {
   it('parses type, scope and subject', () => {
-    expect(parseCommit('abc1234', 'feat(sos): add a cancel window')).toEqual({
+    expect(parseCommit('abc1234', 'feat(issue): add a cancel window')).toEqual({
       sha: 'abc1234',
       type: 'feat',
-      scope: 'sos',
+      scope: 'issue',
       breaking: false,
       subject: 'add a cancel window',
     });
@@ -149,12 +149,12 @@ describe('deciding the bump', () => {
 
 describe('release notes', () => {
   const commits = [
-    parseCommit('a', 'feat(sos): let the countdown be cancelled'),
+    parseCommit('a', 'feat(issue): let the countdown be cancelled'),
     parseCommit('b', 'fix(sync): keep queued alerts across a restart'),
     parseCommit('c', 'security(auth): reject tokens with no algorithm'),
     parseCommit('d', 'chore(ci): cache gradle'),
     parseCommit('e', 'refactor(domain): extract the claim lease'),
-    parseCommit('f', 'test(sos): cover late cancellation'),
+    parseCommit('f', 'test(issue): cover late cancellation'),
   ];
 
   it('groups by category under readable headings', () => {

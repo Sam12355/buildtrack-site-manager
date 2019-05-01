@@ -1,4 +1,4 @@
-package com.guardianlink.checkin
+package com.buildtrack.checkin
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

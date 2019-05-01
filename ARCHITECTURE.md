@@ -44,7 +44,7 @@ them would let the untested parts borrow credibility from the tested one.
 
 A signed artifact is a thing that can be submitted. If one exists before the tests have
 run, somebody will eventually submit it, usually while trying to be helpful during an
-incident.
+site issue.
 
 Ordering the pipeline so that no signed artifact exists until the gates pass removes that
 possibility rather than relying on discipline.
@@ -90,6 +90,6 @@ uninstall staging to test debug will stop testing one of them.
 
 ## What is deliberately not here
 
-GuardianLink's product features. The apps are a safety check-in screen and a list. Anything
-larger would obscure what this repository is about, and the product lives in
-`guardianlink-platform`.
+A full site management product. The apps are a check-in screen and a list, and nothing
+more. Anything larger would obscure what this repository is about, which is the pipeline
+that gets a binary from a commit onto a phone and back off again.
