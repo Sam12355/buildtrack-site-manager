@@ -94,6 +94,6 @@ of what was submitted is refused before the build rather than by the store after
 |------|-----|
 | Fastlane lanes | Need macOS and store credentials |
 | GitHub workflows | Never pushed, so never triggered |
-| iOS app build | No macOS, no Xcode on this machine |
-| Android app build | No Gradle distribution on this machine |
+| iOS app build | No macOS, no Xcode on this machine. The app is here to give the pipeline something to build, not as a shippable product |
+| Android app build | No Gradle distribution on this machine. Same reason |
 | Signing | No assets exist, by design |
