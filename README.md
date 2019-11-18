@@ -3,8 +3,7 @@
 **How iOS and Android binaries get built, versioned, signed, gated, released, rolled back
 and recovered.**
 
-> Part of the [portfolio](../PORTFOLIO.md). A demonstration. Nothing here has been submitted
-> to either store.
+> A demonstration. Nothing here has been submitted to either store.
 
 > **A reconstruction, not an employer's codebase.** I worked on construction site software
 > in 2015 and 2016, and shipping to phones that live in a hi-vis pocket is a different job
