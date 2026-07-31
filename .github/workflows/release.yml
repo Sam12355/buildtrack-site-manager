@@ -95,7 +95,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - working-directory: android
         run: gradle --no-daemon lint testDebugUnitTest
       - uses: actions/upload-artifact@v4
@@ -141,7 +141,7 @@ jobs:
 
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - uses: ruby/setup-ruby@v1
         with: { ruby-version: '3.3', bundler-cache: true, working-directory: android }
       - uses: pnpm/action-setup@v4
