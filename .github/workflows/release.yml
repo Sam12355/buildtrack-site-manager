@@ -31,7 +31,7 @@ jobs:
       build: ${{ steps.derive.outputs.build }}
       notes: ${{ steps.derive.outputs.notes }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Full history and tags. The derivation reads both, and a shallow clone silently
           # produces a wrong build number.
@@ -90,7 +90,7 @@ jobs:
     needs: derive
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -110,7 +110,7 @@ jobs:
     needs: derive
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Generate the project
         run: |
           brew install xcodegen
@@ -136,7 +136,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
 
       - uses: actions/setup-java@v4
@@ -172,7 +172,7 @@ jobs:
     runs-on: macos-14
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
 
       - uses: ruby/setup-ruby@v1
@@ -215,7 +215,7 @@ jobs:
       name: production-release
       url: https://play.google.com/console
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ruby/setup-ruby@v1
         with: { ruby-version: '3.3', bundler-cache: true, working-directory: android }
 
