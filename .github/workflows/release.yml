@@ -37,7 +37,7 @@ jobs:
           # produces a wrong build number.
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 9.15.4
       - uses: actions/setup-node@v4
@@ -144,7 +144,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - uses: ruby/setup-ruby@v1
         with: { ruby-version: '3.3', bundler-cache: true, working-directory: android }
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with: { version: 9.15.4 }
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
@@ -177,7 +177,7 @@ jobs:
 
       - uses: ruby/setup-ruby@v1
         with: { ruby-version: '3.3', bundler-cache: true, working-directory: ios }
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with: { version: 9.15.4 }
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
